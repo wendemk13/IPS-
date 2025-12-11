@@ -5,7 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -22,8 +21,8 @@ public class Transactions {
     @Column(name = "TRANSACTION_ID", nullable = false, length = 20)
     private String transactionId;
 
-    @Column(name = "AMOUNT", nullable = false, precision = 10, scale = 2)
-    private BigDecimal amount;
+    @Column(name = "AMOUNT", nullable = false)
+    private double amount;
 
     @Column(name = "TYPE", nullable = false, length = 20)
     private String type;
@@ -36,5 +35,14 @@ public class Transactions {
 
     @Column(name = "REASON", length = 50)
     private String reason;
+
+    public boolean isSuccess() {
+        return "SUCCESS".equalsIgnoreCase(this.status);
+    }
+
+    public boolean isFailure() {
+        return "FAILURE".equalsIgnoreCase(this.status);
+    }
+
 }
 

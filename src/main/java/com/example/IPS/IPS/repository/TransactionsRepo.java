@@ -9,4 +9,7 @@ import java.util.List;
 public interface TransactionsRepo extends JpaRepository<Transactions, Long> {
     List<Transactions> findAllByTypeAndTimestampBetween(String type, LocalDateTime start, LocalDateTime end);
 
+    List<Transactions> findByTimestampBetween(LocalDateTime start, LocalDateTime end);
+
+//    List<Transactions> findByTimestampAndType(LocalDate date, String type);
 }
