@@ -17,13 +17,16 @@ public class AlertingServices {
     public void sendAlert(LocalDate date, long totalFailures, double failedAmount, double failurePercentage) {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo("wendemk13@gmail.com");
-        message.setSubject("Transaction Alert - Failures Exceeded");
+        message.setSubject("Critical Transaction Alert: Action Needed");
         message.setText(
-                "Date: " + date +
-                        "\nTotal Failures: " + totalFailures +
-                        "\nFailed Amount: $" + failedAmount +
-                        "\nFailure Percentage: " + failurePercentage + "%"
+                "⚠️ Transaction Failure Report ⚠️\n\n" +
+                        "📅 Date: " + date + "\n" +
+                        "❌ Total Failed Transactions: " + totalFailures + "\n" +
+                        "💰 Total Failed Amount: $" + failedAmount + "\n" +
+                        "📊 Failure Percentage: " + failurePercentage + "%\n\n" +
+                        "Please review these failures immediately to avoid potential issues."
         );
+
 
         mailSender.send(message);
         System.out.println("Alert email sent!");

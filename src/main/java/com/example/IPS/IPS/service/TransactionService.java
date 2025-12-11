@@ -5,6 +5,7 @@ import com.example.IPS.IPS.dto.TransactionDTO;
 import com.example.IPS.IPS.dto.TransactionStatsDTO;
 import com.example.IPS.IPS.entity.Transactions;
 import com.example.IPS.IPS.repository.TransactionsRepo;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
-
+@Transactional
 @Service
 public class TransactionService {
 
@@ -153,7 +154,75 @@ public class TransactionService {
         );
     }
 
-    public Transactions saveTransaction(Transactions transaction) {
-        return transactionsRepo.save(transaction);
+
+
+// save transaction
+//    public TransactionDTO saveTransaction(TransactionDTO dto) {
+//        Transactions transaction = new Transactions();
+//        transaction.setTransactionId(dto.getTransactionId());
+//        transaction.setAmount(dto.getAmount());
+//        transaction.setType(dto.getType());
+//        transaction.setTimestamp(dto.getTimestamp());
+//        transaction.setStatus(dto.getStatus());
+//        transaction.setReason(dto.getReason());
+//
+//        Transactions saved = transactionsRepo.save(transaction);
+//
+//        dto.setId(saved.getId());
+//        return dto;
+//    }
+
+
+
+    public TransactionDTO saveTransaction(TransactionDTO dto) {
+        // Convert DTO → Entity
+        Transactions transaction = new Transactions();
+        transaction.setTransactionId(dto.getTransactionId());
+        transaction.setAmount(dto.getAmount());
+        transaction.setType(dto.getType());
+        transaction.setTimestamp(dto.getTimestamp());
+        transaction.setStatus(dto.getStatus());
+        transaction.setReason(dto.getReason());
+
+        // Save transaction
+        Transactions saved = transactionsRepo.save(transaction);
+
+        //  Immediately check thresholds for this day
+        checkThresholdAndSendAlert(saved.getTimestamp().toLocalDate());
+
+        //  Return saved DTO
+        dto.setId(saved.getId());
+        return dto;
     }
+
+    // check
+    private void checkThresholdAndSendAlert(LocalDate date) {
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+        List<Transactions> transactions = transactionsRepo.findByTimestampBetween(startOfDay, endOfDay);
+
+        long totalFailures = transactions.stream()
+                .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+                .count();
+        long totalSuccesses = transactions.size() - totalFailures;
+
+        double failedAmount = transactions.stream()
+                .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+                .mapToDouble(Transactions::getAmount)
+                .sum();
+
+        double successAmount = transactions.stream()
+                .filter(t -> "SUCCESS".equalsIgnoreCase(t.getStatus()))
+                .mapToDouble(Transactions::getAmount)
+                .sum();
+
+        double failurePercentage = transactions.isEmpty() ? 0
+                : (totalFailures * 100.0 / transactions.size());
+
+        // Trigger alert immediately if thresholds exceeded
+        if (failurePercentage > failureThresholdPercentage || failedAmount > failureThresholdAmount) {
+            alertingService.sendAlert(date, totalFailures, failedAmount, failurePercentage);
+        }
+    }
+
 }

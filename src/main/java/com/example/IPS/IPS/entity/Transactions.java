@@ -22,7 +22,7 @@ public class Transactions {
     private String transactionId;
 
     @Column(name = "AMOUNT", nullable = false)
-    private double amount;
+    private Double amount;
 
     @Column(name = "TYPE", nullable = false, length = 20)
     private String type;
@@ -30,7 +30,7 @@ public class Transactions {
     @Column(name = "TIMESTAMP", nullable = false)
     private LocalDateTime timestamp;
 
-    @Column(name = "STATUS", nullable = false, length = 10)
+    @Column(name = "STATUS")
     private String status;
 
     @Column(name = "REASON", length = 50)
