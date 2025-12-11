@@ -29,7 +29,7 @@ public class AlertingServices {
 
 
         mailSender.send(message);
-        System.out.println("Alert email sent!");
+        System.out.println("Warning Alert email sent!");
     }
 
 

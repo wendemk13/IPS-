@@ -3,7 +3,9 @@ package com.example.IPS.IPS.service;
 import com.example.IPS.IPS.dto.DailyTypeSummary;
 import com.example.IPS.IPS.dto.TransactionDTO;
 import com.example.IPS.IPS.dto.TransactionStatsDTO;
+import com.example.IPS.IPS.entity.AlertLog;
 import com.example.IPS.IPS.entity.Transactions;
+import com.example.IPS.IPS.repository.AlertLogRepo;
 import com.example.IPS.IPS.repository.TransactionsRepo;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,13 +25,15 @@ public class TransactionService {
 
     private final TransactionsRepo transactionsRepo;
     private final AlertingServices alertingService;
-
+private final AlertLogRepo alertLogRepo;
     @Autowired
     public TransactionService(
             TransactionsRepo transactionsRepo,
-            AlertingServices alertingService) {
+            AlertingServices alertingService,
+            AlertLogRepo alertLogRepo) {
         this.transactionsRepo = transactionsRepo;
         this.alertingService = alertingService;
+        this.alertLogRepo=alertLogRepo;
 
     }
 
@@ -195,34 +199,106 @@ public class TransactionService {
         return dto;
     }
 
-    // check
+    // check immediately always
+//    private void checkThresholdAndSendAlert(LocalDate date) {
+//        LocalDateTime startOfDay = date.atStartOfDay();
+//        LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+//        List<Transactions> transactions = transactionsRepo.findByTimestampBetween(startOfDay, endOfDay);
+//
+//        long totalFailures = transactions.stream()
+//                .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+//                .count();
+//        long totalSuccesses = transactions.size() - totalFailures;
+//
+//        double failedAmount = transactions.stream()
+//                .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+//                .mapToDouble(Transactions::getAmount)
+//                .sum();
+//
+//        double successAmount = transactions.stream()
+//                .filter(t -> "SUCCESS".equalsIgnoreCase(t.getStatus()))
+//                .mapToDouble(Transactions::getAmount)
+//                .sum();
+//
+//        double failurePercentage = transactions.isEmpty() ? 0
+//                : (totalFailures * 100.0 / transactions.size());
+//
+//        // Trigger alert immediately if thresholds exceeded
+//        if (failurePercentage > failureThresholdPercentage || failedAmount > failureThresholdAmount) {
+//            alertingService.sendAlert(date, totalFailures, failedAmount, failurePercentage);
+//        }
+//    }
+
+
+
     private void checkThresholdAndSendAlert(LocalDate date) {
         LocalDateTime startOfDay = date.atStartOfDay();
         LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+
         List<Transactions> transactions = transactionsRepo.findByTimestampBetween(startOfDay, endOfDay);
 
         long totalFailures = transactions.stream()
                 .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
                 .count();
-        long totalSuccesses = transactions.size() - totalFailures;
 
         double failedAmount = transactions.stream()
                 .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
                 .mapToDouble(Transactions::getAmount)
                 .sum();
 
-        double successAmount = transactions.stream()
-                .filter(t -> "SUCCESS".equalsIgnoreCase(t.getStatus()))
-                .mapToDouble(Transactions::getAmount)
-                .sum();
-
         double failurePercentage = transactions.isEmpty() ? 0
                 : (totalFailures * 100.0 / transactions.size());
 
-        // Trigger alert immediately if thresholds exceeded
-        if (failurePercentage > failureThresholdPercentage || failedAmount > failureThresholdAmount) {
+        AlertLog alertLog = alertLogRepo.findByDate(date).orElseGet(() -> {
+            AlertLog newLog = new AlertLog();
+            newLog.setDate(date);
+            return newLog;
+        });
+
+        boolean shouldSendAlert = false;
+        StringBuilder alertMessage = new StringBuilder();
+
+        // FAILURE PERCENTAGE LOGIC
+        if (failurePercentage > failureThresholdPercentage) {
+            // Threshold exceeded
+            alertLog.setFailureThresholdExceeded(true);
+
+            if (!alertLog.isFailureAlertSent() || lastTransactionIsFailure(transactions)) {
+                alertMessage.append("Failure Percentage exceeded: ").append(failurePercentage).append("%\n");
+                alertLog.setFailureAlertSent(true);
+                shouldSendAlert = true;
+            }
+        } else {
+            // Threshold back to normal
+            alertLog.setFailureThresholdExceeded(false);
+            alertLog.setFailureAlertSent(false);
+        }
+
+        // FAILED AMOUNT LOGIC
+        if (failedAmount > failureThresholdAmount) {
+            alertLog.setAmountThresholdExceeded(true);
+
+            if (!alertLog.isAmountAlertSent() || lastTransactionIsFailure(transactions)) {
+                alertMessage.append("Failed Amount exceeded: $").append(failedAmount).append("\n");
+                alertLog.setAmountAlertSent(true);
+                shouldSendAlert = true;
+            }
+        } else {
+            alertLog.setAmountThresholdExceeded(false);
+            alertLog.setAmountAlertSent(false);
+        }
+
+        if (shouldSendAlert) {
             alertingService.sendAlert(date, totalFailures, failedAmount, failurePercentage);
         }
+
+        alertLogRepo.save(alertLog);
+    }
+
+    // Helper to check if last transaction is failure
+    private boolean lastTransactionIsFailure(List<Transactions> transactions) {
+        if (transactions.isEmpty()) return false;
+        return "FAILURE".equalsIgnoreCase(transactions.get(transactions.size() - 1).getStatus());
     }
 
 }
