@@ -1,5 +1,6 @@
 package com.example.IPS.IPS.service;
 
+import com.example.IPS.IPS.dto.DailySummary;
 import com.example.IPS.IPS.dto.DailyTypeSummary;
 import com.example.IPS.IPS.dto.TransactionDTO;
 import com.example.IPS.IPS.dto.TransactionStatsDTO;
@@ -9,23 +10,27 @@ import com.example.IPS.IPS.repository.AlertLogRepo;
 import com.example.IPS.IPS.repository.TransactionsRepo;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Transactional
 @Service
 public class TransactionService {
 
-    private final double failureThresholdPercentage = 10;
-    private final double failureThresholdAmount = 1000;
-
     private final TransactionsRepo transactionsRepo;
     private final AlertingServices alertingService;
-private final AlertLogRepo alertLogRepo;
+    private final AlertLogRepo alertLogRepo;
+    @Value("${app.alert.threshold.percentage}")
+    private double failureThresholdPercentage;
+    @Value("${app.alert.threshold.amount}")
+    private double failureThresholdAmount = 1000;
+
     @Autowired
     public TransactionService(
             TransactionsRepo transactionsRepo,
@@ -33,9 +38,106 @@ private final AlertLogRepo alertLogRepo;
             AlertLogRepo alertLogRepo) {
         this.transactionsRepo = transactionsRepo;
         this.alertingService = alertingService;
-        this.alertLogRepo=alertLogRepo;
+        this.alertLogRepo = alertLogRepo;
 
     }
+
+public List<Transactions> getAllTransactionsFailures() {
+        return transactionsRepo.findByStatus("FAILURE");
+}
+
+
+public Transactions getTransactionById(String id) {
+    Transactions transaction = transactionsRepo.findByTransactionId(id);
+
+        return transaction;
+}
+    public List<Transactions> getTransactionsByDateRange(LocalDate startDate, LocalDate endDate) {
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.atTime(LocalTime.MAX);
+        return transactionsRepo.findByTimestampBetween(start, end);
+    }
+    public List<DailySummary> getDailySummaryByDateRange(LocalDate startDate, LocalDate endDate) {
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.atTime(LocalTime.MAX);
+
+        List<Transactions> transactions = transactionsRepo.findByTimestampBetween(start, end);
+
+        // Group transactions by date
+        Map<LocalDate, List<Transactions>> byDate = transactions.stream()
+                .collect(Collectors.groupingBy(t -> t.getTimestamp().toLocalDate()));
+
+        List<DailySummary> summaries = new ArrayList<>();
+        for (LocalDate date : byDate.keySet()) {
+            List<Transactions> daily = byDate.get(date);
+            long totalFailures = daily.stream().filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus())).count();
+            double totalAmount = daily.stream()
+                    .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+                    .mapToDouble(Transactions::getAmount)
+                    .sum();
+
+            Map<String, Long> failureByType = daily.stream()
+                    .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+                    .collect(Collectors.groupingBy(Transactions::getType, Collectors.counting()));
+
+            summaries.add(new DailySummary(date, totalFailures, totalAmount, failureByType));
+        }
+
+        // Sort by date
+        summaries.sort(Comparator.comparing(DailySummary::date));
+        return summaries;
+    }
+    public DailyTypeSummary getDailySummary(LocalDate date) {
+
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+
+        // fetch all transactions of that type for the day
+        List<Transactions> transactions = transactionsRepo.findByTimestampBetween(startOfDay, endOfDay);
+
+        long totalFailures = transactions.stream()
+                .filter(t -> "FAILURE".equalsIgnoreCase(t.getStatus()))
+                .count();
+
+        long totalSuccesses = transactions.stream()
+                .filter(t -> "SUCCESS".equalsIgnoreCase(t.getStatus()))
+                .count();
+
+        double failedAmount = transactions.stream()
+                .filter(t -> "FAILED".equalsIgnoreCase(t.getStatus()))
+                .mapToDouble(t -> t.getAmount())
+                .sum();
+
+        double successAmount = transactions.stream()
+                .filter(t -> "SUCCESS".equalsIgnoreCase(t.getStatus()))
+                .mapToDouble(t -> t.getAmount())
+                .sum();
+
+        long totalTransactions = totalFailures + totalSuccesses;
+
+        double failurePercentage = totalTransactions == 0 ? 0 : (totalFailures * 100.0 / totalTransactions);
+        double successPercentage = totalTransactions == 0 ? 0 : (totalSuccesses * 100.0 / totalTransactions);
+
+        return new DailyTypeSummary(
+                date,
+                totalFailures,
+                totalSuccesses,
+                failedAmount,
+                successAmount,
+                failurePercentage,
+                successPercentage
+        );
+    }
+
+
+    public List<Transactions> getDailyFailedTransactions(LocalDate date) {
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.atTime(LocalTime.MAX);
+
+        // fetch all transactions of that type for the day
+        return transactionsRepo.findByTimestampBetween(startOfDay, endOfDay);
+    }
+
 
     public DailyTypeSummary getDailySummaryByType(LocalDate date, String type) {
 
@@ -159,7 +261,6 @@ private final AlertLogRepo alertLogRepo;
     }
 
 
-
 // save transaction
 //    public TransactionDTO saveTransaction(TransactionDTO dto) {
 //        Transactions transaction = new Transactions();
@@ -175,7 +276,6 @@ private final AlertLogRepo alertLogRepo;
 //        dto.setId(saved.getId());
 //        return dto;
 //    }
-
 
 
     public TransactionDTO saveTransaction(TransactionDTO dto) {
@@ -228,7 +328,6 @@ private final AlertLogRepo alertLogRepo;
 //            alertingService.sendAlert(date, totalFailures, failedAmount, failurePercentage);
 //        }
 //    }
-
 
 
     private void checkThresholdAndSendAlert(LocalDate date) {
@@ -300,5 +399,6 @@ private final AlertLogRepo alertLogRepo;
         if (transactions.isEmpty()) return false;
         return "FAILURE".equalsIgnoreCase(transactions.get(transactions.size() - 1).getStatus());
     }
+
 
 }

@@ -9,6 +9,6 @@ import java.util.Optional;
 
 @Repository
 public interface AlertLogRepo extends JpaRepository<AlertLog, Long> {
-//    AlertLog findByDate(LocalDate date);
-Optional<AlertLog> findByDate(LocalDate date);
+    //    AlertLog findByDate(LocalDate date);
+    Optional<AlertLog> findByDate(LocalDate date);
 }
